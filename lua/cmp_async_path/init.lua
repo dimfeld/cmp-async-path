@@ -1,22 +1,25 @@
-local cmp = require 'cmp'
-local IS_WIN = vim.uv.os_uname().sysname == 'Windows_NT'
-local NAME_REGEX = '\\%([^/\\\\:\\*?<>\'"`\\|]\\)'
+local cmp = require("cmp")
+local IS_WIN = vim.uv.os_uname().sysname == "Windows_NT"
+local NAME_REGEX = "\\%([^/\\\\:\\*?<>'\"`\\|]\\)"
 local PATH_REGEX
 local PATH_SEPARATOR
 
 if IS_WIN then
-  PATH_REGEX = assert(vim.regex(([[\%(\%([/\\]PAT*[^/\\\\:\\*?<>\'"`\\| .~]\)\|\%(/\.\.\)\)*[/\\]\zePAT*$]]):gsub('PAT',
-    NAME_REGEX)))
-  PATH_SEPARATOR = '[/\\]'
+  -- PATH_REGEX = assert(
+  --   vim.regex(([[\%(\%([/\\]PAT*[^/\\\\:\\*?<>\'"`\\| .~]\)\|\%(/\.\.\)\)*[/\\]\zePAT*$]]):gsub("PAT", NAME_REGEX))
+  -- )
+  PATH_SEPARATOR = "[/\\]"
 else
-  PATH_REGEX = assert(vim.regex(([[\%(\%(/PAT*[^/\\\\:\\*?<>\'"`\\| .~]\)\|\%(/\.\.\)\)*/\zePAT*$]]):gsub('PAT',
-    NAME_REGEX)))
-  PATH_SEPARATOR = '/'
+  -- PATH_REGEX =
+  --   assert(vim.regex(([[\%(\%(/PAT*[^/\\\\:\\*?<>\'"`\\| .~]\)\|\%(/\.\.\)\)*/\zePAT*$]]):gsub("PAT", NAME_REGEX)))
+  PATH_SEPARATOR = "/"
 end
+-- Character after the last space character
+PATH_REGEX = vim.regex([[[^\\] \S*$]])
 
 local source = {}
 
-local constants = {max_lines = 20}
+local constants = { max_lines = 20 }
 
 ---@class cmp_path.Option
 ---@field public trailing_slash boolean
@@ -29,22 +32,26 @@ local defaults = {
   trailing_slash = false,
   label_trailing_slash = true,
   get_cwd = function(params)
-    return vim.fn.expand(('#%d:p:h'):format(params.context.bufnr))
+    return vim.fn.expand(("#%d:p:h"):format(params.context.bufnr))
   end,
   show_hidden_files_by_default = false,
 }
 
-source.new = function() return setmetatable({}, {__index = source}) end
+source.new = function()
+  return setmetatable({}, { __index = source })
+end
 
 source.get_trigger_characters = function()
   if IS_WIN then
-    return {'/', '.', '\\'}
+    return { "/", ".", "\\" }
   else
-    return {'/', '.'}
+    return { "/", "." }
   end
 end
 
-source.get_keyword_pattern = function(_, _) return NAME_REGEX .. '*' end
+source.get_keyword_pattern = function(_, _)
+  return NAME_REGEX .. "*"
+end
 
 ---@param params cmp.SourceCompletionApiParams
 ---@param callback fun(response: lsp.CompletionResponse|nil)
@@ -56,9 +63,12 @@ function source:complete(params, callback)
     return callback()
   end
 
-  local include_hidden = option.show_hidden_files_by_default or
-    string.sub(params.context.cursor_before_line, params.offset, params.offset) == '.'
-  self:_candidates(dirname, include_hidden, option,
+  local include_hidden = option.show_hidden_files_by_default
+    or string.sub(params.context.cursor_before_line, params.offset, params.offset) == "."
+  self:_candidates(
+    dirname,
+    include_hidden,
+    option,
     ---@param err nil|string
     ---@param candidates lsp.CompletionResponse|nil
     function(err, candidates)
@@ -66,7 +76,8 @@ function source:complete(params, callback)
         return callback()
       end
       callback(candidates)
-    end)
+    end
+  )
 end
 
 --- get documentation in separate thread
@@ -75,7 +86,7 @@ end
 function source:resolve(completion_item, callback)
   local data = completion_item.data
   ---@diagnostic disable-next-line: undefined-field
-  if not data.stat or data.stat.type ~= 'file' then
+  if not data.stat or data.stat.type ~= "file" then
     -- return right away with no changes / no added docs
     callback(completion_item)
     return
@@ -83,28 +94,29 @@ function source:resolve(completion_item, callback)
 
   local work
   work = assert(vim.uv.new_work(
-  --- Read file in thread
-  ---@param filepath string
-  ---@param count number max line count (-1 if no max)
-  ---@return string|nil, string (error, serialized_table) either some error or the serialized table
+    --- Read file in thread
+    ---@param filepath string
+    ---@param count number max line count (-1 if no max)
+    ---@return string|nil, string (error, serialized_table) either some error or the serialized table
     function(filepath, count)
-      local ok, binary = pcall(io.open, filepath, 'rb')
+      local ok, binary = pcall(io.open, filepath, "rb")
       if not ok or binary == nil then
         ---@diagnostic disable-next-line: redundant-return-value
-        return nil, vim.json.encode({
-          kind = "binary",
-          contents = "« cannot read this file »"
-        })
+        return nil,
+          vim.json.encode({
+            kind = "binary",
+            contents = "« cannot read this file »",
+          })
       end
       local first_kb = binary:read(1024)
       if first_kb == nil or first_kb == "" then
         ---@diagnostic disable-next-line: redundant-return-value
-        return nil, vim.json.encode({kind = 'binary', contents = '« empty file »'})
+        return nil, vim.json.encode({ kind = "binary", contents = "« empty file »" })
       end
 
-      if first_kb:find('\0') then
+      if first_kb:find("\0") then
         ---@diagnostic disable-next-line: redundant-return-value
-        return nil, vim.json.encode({kind = "binary", contents = 'binary file'})
+        return nil, vim.json.encode({ kind = "binary", contents = "binary file" })
       end
 
       local contents = {}
@@ -115,7 +127,7 @@ function source:resolve(completion_item, callback)
         end
       end
       ---@diagnostic disable-next-line: redundant-return-value
-      return nil, vim.json.encode({contents = contents})
+      return nil, vim.json.encode({ contents = contents })
     end,
     --- deserialize doc and call callback(…)
     ---@param serialized_fileinfo string
@@ -124,10 +136,10 @@ function source:resolve(completion_item, callback)
         error(string.format("Worker error while fetching file doc: %s", worker_error))
       end
 
-      local read_ok, file_info = pcall(vim.json.decode, serialized_fileinfo, {luanil = {object = true, array = true}})
+      local read_ok, file_info =
+        pcall(vim.json.decode, serialized_fileinfo, { luanil = { object = true, array = true } })
       if not read_ok then
-        error(string.format("Unexpected problem de-serializing item info: «%s»",
-          serialized_fileinfo))
+        error(string.format("Unexpected problem de-serializing item info: «%s»", serialized_fileinfo))
       end
       if file_info.kind == "binary" then
         completion_item.documentation = {
@@ -136,18 +148,18 @@ function source:resolve(completion_item, callback)
         }
       else
         local contents = file_info.contents
-        local filetype = vim.filetype.match({contents = contents})
+        local filetype = vim.filetype.match({ contents = contents })
         if not filetype then
           completion_item.documentation = {
             kind = cmp.lsp.MarkupKind.PlainText,
-            value = table.concat(contents, '\n'),
+            value = table.concat(contents, "\n"),
           }
         else
-          table.insert(contents, 1, '```' .. filetype)
-          table.insert(contents, '```')
+          table.insert(contents, 1, "```" .. filetype)
+          table.insert(contents, "```")
           completion_item.documentation = {
             kind = cmp.lsp.MarkupKind.Markdown,
-            value = table.concat(contents, '\n'),
+            value = table.concat(contents, "\n"),
           }
         end
       end
@@ -168,55 +180,80 @@ function source:_dirname(params, option)
     return nil
   end
 
-  local dirname = string.gsub(string.sub(params.context.cursor_before_line,
-    s + 2), '%a*$', '')                                                  -- exclude '/'
-  local prefix = string.sub(params.context.cursor_before_line, 1, s + 1) -- include '/'
+  -- Matched the character before the last space, so add 2, + 1 more to go to Lua one-indexing
+  local relpath = string.sub(params.context.cursor_before_line, s + 3)
+
+  -- Remove leading quotes
+  if relpath:match("^['\"]") then
+    relpath = string.sub(relpath, 2)
+  end
 
   local buf_dirname = option.get_cwd(params)
-  if vim.api.nvim_get_mode().mode == 'c' then
+  if vim.api.nvim_get_mode().mode == "c" then
     buf_dirname = vim.fn.getcwd()
+  elseif not relpath:match("^[%./]") then
+    -- Require that we start with a . or / if not in the command line
+    return
   end
-  if prefix:match('%.%.' .. PATH_SEPARATOR .. '$') then
-    return vim.fn.resolve(buf_dirname .. '/../' .. dirname)
-  end
-  if (prefix:match('%.' .. PATH_SEPARATOR .. '$') or prefix:match('"$') or prefix:match('\'$')) then
-    return vim.fn.resolve(buf_dirname .. '/' .. dirname)
-  end
-  if prefix:match('~' .. PATH_SEPARATOR .. '$') then
-    return vim.fn.resolve(vim.fn.expand('~') .. '/' .. dirname)
-  end
-  local env_var_name = prefix:match('%$([%a_]+)' .. PATH_SEPARATOR .. '$')
-  if env_var_name then
-    local env_var_value = vim.fn.getenv(env_var_name)
-    if env_var_value ~= vim.NIL then
-      return vim.fn.resolve(env_var_value .. '/' .. dirname)
+
+  local success, outpath = pcall(function()
+    if vim.startswith(relpath, "%") then
+      -- Take everything before the first / and pass it into vim.fn.expand
+      -- It will expand the % character
+      local first_slash = string.find(relpath, PATH_SEPARATOR)
+      if first_slash then
+        local first = vim.fn.expand(string.sub(relpath, 1, first_slash - 1))
+
+        relpath = first .. string.sub(relpath, first_slash)
+      else
+        relpath = vim.fn.expand(relpath)
+      end
     end
+    local ends_with_slash = vim.endswith(relpath, PATH_SEPARATOR)
+    local outpath = vim.fn.resolve(relpath)
+    if ends_with_slash then
+      outpath = outpath .. PATH_SEPARATOR
+    end
+    return outpath
+  end)
+  if not success then
+    return nil
   end
+
+  if not vim.endswith(outpath, PATH_SEPARATOR) then
+    outpath = vim.fn.fnamemodify(outpath, ":h")
+  end
+
+  if vim.startswith(outpath, "/") then
+    return outpath
+  end
+
   if IS_WIN then
-    local driver = prefix:match('(%a:)[/\\]$')
+    local driver = outpath:match("(%a:)[/\\]$")
     if driver then
-      return vim.fn.resolve(driver .. '/' .. dirname)
+      return vim.fn.resolve(driver .. "/" .. outpath)
     end
   end
-  if prefix:match('/$') then
-    local accept = true
-    -- Ignore URL components
-    accept = accept and not prefix:match('%a/$')
-    -- Ignore URL scheme
-    accept = accept and not prefix:match('%a+:/$') and
-      not prefix:match('%a+://$')
-    -- Ignore HTML closing tags
-    accept = accept and not prefix:match('</$')
-    -- Ignore math calculation
-    accept = accept and not prefix:match('[%d%)]%s*/$')
-    -- Ignore / comment
-    accept = accept and
-      (not prefix:match('^[%s/]*$') or not self:_is_slash_comment_p())
-    if accept then
-      return vim.fn.resolve('/' .. dirname)
-    end
-  end
-  return nil
+
+  return vim.fn.resolve(buf_dirname .. PATH_SEPARATOR .. outpath)
+
+  -- if outpath:match("/$") then
+  --   local accept = true
+  --   -- Ignore URL components
+  --   accept = accept and not outpath:match("%a/$")
+  --   -- Ignore URL scheme
+  --   accept = accept and not outpath:match("%a+:/$") and not outpath:match("%a+://$")
+  --   -- Ignore HTML closing tags
+  --   accept = accept and not outpath:match("</$")
+  --   -- Ignore math calculation
+  --   accept = accept and not outpath:match("[%d%)]%s*/$")
+  --   -- Ignore / comment
+  --   accept = accept and (not outpath:match("^[%s/]*$") or not self:_is_slash_comment_p())
+  --   if accept then
+  --     return outpath
+  --   end
+  -- end
+  -- return nil
 end
 
 --- call cmp's callback(entries) after retrieving entries in a separate thread
@@ -232,32 +269,30 @@ function source:_candidates(dirname, include_hidden, option, callback)
 
   local work
   work = assert(vim.uv.new_work(
-  --- Collect path entries, serialize them and return them
-  --- This function is called in a separate thread, so errors are caught and serialized
-  ---@param _entries uv_fs_t
-  ---@param _dirname string see vim.fn.resolve()
-  ---@param _include_hidden boolean
-  ---@param label_trailing_slash boolean
-  ---@param trailing_slash boolean
-  ---@param file_kind table<string,number> see cmp.lsp.CompletionItemKind.Filee
-  ---@param folder_kind table<string,number> see cmp.lsp.CompletionItemKind.Folder
-  ---@return string|nil, string (error, serialized_results) "error text", nil or nil, "serialized items"
-    function(_entries, _dirname, _include_hidden,
-             label_trailing_slash, trailing_slash,
-             file_kind, folder_kind)
+    --- Collect path entries, serialize them and return them
+    --- This function is called in a separate thread, so errors are caught and serialized
+    ---@param _entries uv_fs_t
+    ---@param _dirname string see vim.fn.resolve()
+    ---@param _include_hidden boolean
+    ---@param label_trailing_slash boolean
+    ---@param trailing_slash boolean
+    ---@param file_kind table<string,number> see cmp.lsp.CompletionItemKind.Filee
+    ---@param folder_kind table<string,number> see cmp.lsp.CompletionItemKind.Folder
+    ---@return string|nil, string (error, serialized_results) "error text", nil or nil, "serialized items"
+    function(_entries, _dirname, _include_hidden, label_trailing_slash, trailing_slash, file_kind, folder_kind)
       local items = {}
 
       local function create_item(name, fs_type)
-        if not (_include_hidden or string.sub(name, 1, 1) ~= '.') then
+        if not (_include_hidden or string.sub(name, 1, 1) ~= ".") then
           return
         end
 
-        local path = _dirname .. '/' .. name
+        local path = _dirname .. "/" .. name
         local stat = assert(vim.uv.fs_stat)(path)
         local lstat = nil
         if stat then
           fs_type = stat.type
-        elseif fs_type == 'link' then
+        elseif fs_type == "link" then
           -- Broken symlink
           lstat = assert(vim.uv.fs_lstat)(_dirname)
           if not lstat then
@@ -272,16 +307,16 @@ function source:_candidates(dirname, include_hidden, option, callback)
           filterText = name,
           insertText = name,
           kind = file_kind,
-          data = {path = path, type = fs_type, stat = stat, lstat = lstat},
+          data = { path = path, type = fs_type, stat = stat, lstat = lstat },
         }
-        if fs_type == 'directory' then
+        if fs_type == "directory" then
           item.kind = folder_kind
           if label_trailing_slash then
-            item.label = name .. '/'
+            item.label = name .. "/"
           else
             item.label = name
           end
-          item.insertText = name .. '/'
+          item.insertText = name .. "/"
           if not trailing_slash then
             item.word = name
           end
@@ -314,37 +349,44 @@ function source:_candidates(dirname, include_hidden, option, callback)
         callback(err, nil)
         return
       end
-      local read_ok, items = pcall(vim.json.decode, serialized_items, {luanil = {object = true, array = true}})
+      local read_ok, items = pcall(vim.json.decode, serialized_items, { luanil = { object = true, array = true } })
       if not read_ok then
         callback("Problem de-serializing file entries", nil)
       end
       callback(nil, items)
-    end))
+    end
+  ))
 
-  work:queue(entries, dirname, include_hidden, option.label_trailing_slash,
-    option.trailing_slash, cmp.lsp.CompletionItemKind.File,
-    cmp.lsp.CompletionItemKind.Folder)
+  work:queue(
+    entries,
+    dirname,
+    include_hidden,
+    option.label_trailing_slash,
+    option.trailing_slash,
+    cmp.lsp.CompletionItemKind.File,
+    cmp.lsp.CompletionItemKind.Folder
+  )
 end
 
 --- using «/» as comment in current buffer?
 function source:_is_slash_comment_p()
-  local commentstring = vim.bo.commentstring or ''
-  local no_filetype = vim.bo.filetype == ''
+  local commentstring = vim.bo.commentstring or ""
+  local no_filetype = vim.bo.filetype == ""
   local is_slash_comment = false
-  is_slash_comment = is_slash_comment or commentstring:match('/%*')
-  is_slash_comment = is_slash_comment or commentstring:match('//')
+  is_slash_comment = is_slash_comment or commentstring:match("/%*")
+  is_slash_comment = is_slash_comment or commentstring:match("//")
   return is_slash_comment and not no_filetype
 end
 
 ---@param params cmp.SourceCompletionApiParams
 ---@return cmp_path.Option
 function source:_validate_option(params)
-  local option = assert(vim.tbl_deep_extend('keep', params.option, defaults))
+  local option = assert(vim.tbl_deep_extend("keep", params.option, defaults))
   vim.validate({
-    trailing_slash = {option.trailing_slash, 'boolean'},
-    label_trailing_slash = {option.label_trailing_slash, 'boolean'},
-    get_cwd = {option.get_cwd, 'function'},
-    show_hidden_files_by_default = {option.show_hidden_files_by_default, 'boolean'},
+    trailing_slash = { option.trailing_slash, "boolean" },
+    label_trailing_slash = { option.label_trailing_slash, "boolean" },
+    get_cwd = { option.get_cwd, "function" },
+    show_hidden_files_by_default = { option.show_hidden_files_by_default, "boolean" },
   })
   return option
 end
