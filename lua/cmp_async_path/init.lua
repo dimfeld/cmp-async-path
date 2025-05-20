@@ -1,7 +1,6 @@
 local cmp = require("cmp")
 local IS_WIN = vim.uv.os_uname().sysname == "Windows_NT"
 local NAME_REGEX = "\\%([^/\\\\:\\*?<>'\"`\\|]\\)"
-local PATH_REGEX
 local PATH_SEPARATOR
 
 if IS_WIN then
@@ -15,7 +14,7 @@ else
   PATH_SEPARATOR = "/"
 end
 -- Character after the last space character
-PATH_REGEX = vim.regex([[[^\\] \S*$]])
+local PATH_REGEX = assert(vim.regex([[[^\\] \S*$]]))
 
 local source = {}
 
